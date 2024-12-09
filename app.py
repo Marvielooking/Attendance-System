@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, redirect, url_for
+from flask import Flask, request, jsonify, render_template, redirect, url_for
 import sqlite3
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 
@@ -24,25 +24,33 @@ def load_user(user_id):
             return user
     return None
 
-@app.route('/register', methods=['POST'])
-def register():
-    data = request.get_json()
-    username = data['username']
-    password = data['password']
-    new_user = User(id=len(users)+1, username=username, password=password)
-    users.append(new_user)
-    return jsonify({'message': 'User registered successfully'})
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-@app.route('/login', methods=['POST'])
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        data = request.get_json()
+        username = data['username']
+        password = data['password']
+        new_user = User(id=len(users)+1, username=username, password=password)
+        users.append(new_user)
+        return jsonify({'message': 'User registered successfully'})
+    return render_template('register.html')
+
+@app.route('/login', methods=['GET', 'POST'])
 def login():
-    data = request.get_json()
-    username = data['username']
-    password = data['password']
-    user = [user for user in users if user.username == username and user.password == password]
-    if user:
-        login_user(user[0])
-        return jsonify({'message': 'Logged in successfully'})
-    return jsonify({'message': 'Invalid credentials'}), 401
+    if request.method == 'POST':
+        data = request.get_json()
+        username = data['username']
+        password = data['password']
+        user = [user for user in users if user.username == username and user.password == password]
+        if user:
+            login_user(user[0])
+            return jsonify({'message': 'Logged in successfully'})
+        return jsonify({'message': 'Invalid credentials'}), 401
+    return render_template('login.html')
 
 @app.route('/logout', methods=['POST'])
 @login_required
@@ -52,6 +60,7 @@ def logout():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 # Route to add a student
 @app.route('/add_student', methods=['POST'])
