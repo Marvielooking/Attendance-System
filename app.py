@@ -1,7 +1,57 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, redirect, url_for
 import sqlite3
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your_secret_key'
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+class User(UserMixin):
+    def __init__(self, id, username, password):
+        self.id = id
+        self.username = username
+        self.password = password
+
+users = []
+
+@login_manager.user_loader
+def load_user(user_id):
+    for user in users:
+        if user.id == user_id:
+            return user
+    return None
+
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    username = data['username']
+    password = data['password']
+    new_user = User(id=len(users)+1, username=username, password=password)
+    users.append(new_user)
+    return jsonify({'message': 'User registered successfully'})
+
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    username = data['username']
+    password = data['password']
+    user = [user for user in users if user.username == username and user.password == password]
+    if user:
+        login_user(user[0])
+        return jsonify({'message': 'Logged in successfully'})
+    return jsonify({'message': 'Invalid credentials'}), 401
+
+@app.route('/logout', methods=['POST'])
+@login_required
+def logout():
+    logout_user()
+    return jsonify({'message': 'Logged out successfully'})
+
+if __name__ == '__main__':
+    app.run(debug=True)
 
 # Route to add a student
 @app.route('/add_student', methods=['POST'])
@@ -105,6 +155,62 @@ def add_lectures():
     conn.commit()
     conn.close()
     return jsonify({'message': 'Lectures added successfully'})
+
+@app.route('/remaining_lectures/<int:subject_id>', methods=['GET'])
+def remaining_lectures(subject_id):
+    conn = sqlite3.connect('attendance.db')
+    c = conn.cursor()
+    c.execute("SELECT lectures FROM subjects WHERE id = ?", (subject_id,))
+    total_lectures = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM attendance WHERE subject_id = ?", (subject_id,))
+    attended_lectures = c.fetchone()[0]
+    conn.close()
+    remaining_lectures = total_lectures - attended_lectures
+    return jsonify({'remaining_lectures': remaining_lectures})
+
+# Add the number of lectures for a subject
+@app.route('/add_lectures', methods=['POST'])
+@login_required
+def add_lectures():
+    data = request.get_json()
+    subject_id = data['subject_id']
+    lectures = data['lectures']
+    conn = sqlite3.connect('attendance.db')
+    c = conn.cursor()
+    c.execute("UPDATE subjects SET lectures = ? WHERE id = ?", (lectures, subject_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Lectures added successfully'})
+
+@app.route('/remaining_lectures/<int:subject_id>', methods=['GET'])
+@login_required
+def remaining_lectures(subject_id):
+    conn = sqlite3.connect('attendance.db')
+    c = conn.cursor()
+    c.execute("SELECT lectures FROM subjects WHERE id = ?", (subject_id,))
+    total_lectures = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM attendance WHERE subject_id = ?", (subject_id,))
+    attended_lectures = c.fetchone()[0]
+    conn.close()
+    remaining_lectures = total_lectures - attended_lectures
+    return jsonify({'remaining_lectures': remaining_lectures})
+
+@app.route('/attendance_report/<int:student_id>/<int:subject_id>', methods=['GET'])
+@login_required
+def attendance_report(student_id, subject_id):
+    conn = sqlite3.connect('attendance.db')
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM attendance WHERE student_id = ? AND subject_id = ? AND status = 'Present'",
+              (student_id, subject_id))
+    present_count = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM attendance WHERE student_id = ? AND subject_id = ?",
+              (student_id, subject_id))
+    total_count = c.fetchone()[0]
+    conn.close()
+    attendance_percentage = (present_count / total_count) * 100 if total_count > 0 else 0
+    status = 'Below 75%' if attendance_percentage < 75 else 'Satisfactory'
+    return jsonify({'attendance_percentage': attendance_percentage, 'status': status})
+
 
 if __name__ == '__main__':
     app.run(debug=True)
